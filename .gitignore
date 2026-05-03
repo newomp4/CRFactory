@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.DS_Store
+build/
+dist/
+*.mp4
+*.webm
+*.mkv
+*.part
+*.ytdl
+crfactory-data/

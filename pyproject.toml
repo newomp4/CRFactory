@@ -1,0 +1,29 @@
+[project]
+name = "crfactory"
+version = "0.1.0"
+description = "Scrape YouTube shorts, stitch your CTA, batch-output ready-to-upload clips."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "newomp4" }]
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+  "yt-dlp>=2024.1.1",
+  "imageio-ffmpeg>=0.4.9",
+  "pydantic>=2.5",
+  "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+crfactory = "crfactory.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["crfactory"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"crfactory/static" = "crfactory/static"

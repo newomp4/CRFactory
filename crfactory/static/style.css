@@ -1,0 +1,70 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0; background: #0f1115; color: #e7eaf0;
+}
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1rem 1.5rem; border-bottom: 1px solid #232735;
+  flex-wrap: wrap; gap: .75rem;
+}
+header h1 { margin: 0; font-size: 1.15rem; letter-spacing: .04em; }
+.hcfg { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.badge {
+  background: #1a2434; color: #8db1ff;
+  font-size: .7rem; padding: .2rem .5rem; border-radius: 999px;
+  border: 1px solid #2a3a5a;
+}
+main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+section { margin-bottom: 2rem; }
+h2, h3 { margin-top: 0; }
+.muted { color: #8a93a6; font-size: .85rem; }
+
+.card {
+  background: #161a22; border: 1px solid #232735; border-radius: 8px;
+  padding: 1rem; display: flex; flex-direction: column; gap: .4rem;
+}
+.grid {
+  display: grid; gap: 1rem; margin-bottom: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+input, button, select {
+  font: inherit;
+  background: #0f1115; color: #e7eaf0;
+  border: 1px solid #2a2f3a; border-radius: 6px;
+  padding: .4rem .6rem;
+}
+button {
+  background: #3a4ad8; border-color: #3a4ad8; color: white;
+  cursor: pointer; transition: filter .1s;
+}
+button:hover { filter: brightness(1.15); }
+
+label { display: block; margin: .25rem 0; font-size: .85rem; color: #aab; }
+label input { display: block; margin-top: .15rem; width: 100%; }
+
+ul#projects-list { list-style: none; padding: 0; margin: 0 0 1rem; }
+ul#projects-list li {
+  padding: .6rem .8rem; border: 1px solid #232735; border-radius: 6px;
+  cursor: pointer; margin-bottom: .35rem; background: #141823;
+}
+ul#projects-list li:hover { background: #1c2230; }
+ul#projects-list li.muted { background: transparent; cursor: default; border-style: dashed; }
+
+#new-project-form { gap: .5rem; }
+#new-project-form > * { margin: 0; }
+
+table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .85rem; }
+th, td {
+  text-align: left; padding: .4rem .6rem;
+  border-bottom: 1px solid #232735; vertical-align: top;
+}
+td a { color: #8db1ff; text-decoration: none; }
+td a:hover { text-decoration: underline; }
+
+pre {
+  background: #0a0c10; padding: .75rem; border-radius: 6px;
+  overflow: auto; font-size: .8rem; max-height: 16rem;
+  white-space: pre-wrap; word-break: break-word;
+}
