@@ -327,6 +327,42 @@ label.inline input { margin-top: 0; }
 .cta-controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .5rem 0; }
 .cta-controls input[type="file"] { flex: 1; min-width: 180px; }
 
+.cta-list {
+  list-style: none;
+  padding: 0;
+  margin: .5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.cta-list li {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .65rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: .85rem;
+}
+.cta-list .cta-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .8rem;
+}
+.cta-list .cta-size { color: var(--text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.cta-list-empty {
+  padding: .65rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  text-align: center;
+  font-size: .8rem;
+}
+
 /* pills */
 .pill {
   display: inline-flex;

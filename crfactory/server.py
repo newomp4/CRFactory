@@ -1,5 +1,7 @@
 from __future__ import annotations
 import platform
+import random
+import re
 import shutil
 import subprocess
 import sys
@@ -56,6 +58,15 @@ def _dir_size(path: Path) -> tuple[int, int]:
     return sum(f.stat().st_size for f in files), len(files)
 
 
+_FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_filename(name: str, default: str = "cta.mp4") -> str:
+    base = Path(name).name
+    base = _FILENAME_SAFE.sub("_", base).strip("._")
+    return base or default
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -95,7 +106,13 @@ def api_list_projects() -> list[dict]:
     out = []
     for p in list_projects(root):
         lib = Library(p.db_path(root))
-        out.append({**p.__dict__, "stats": lib.stats(), "has_cta": p.cta_path(root).exists()})
+        ctas = p.list_cta_files(root)
+        out.append({
+            **p.__dict__,
+            "stats": lib.stats(),
+            "cta_count": len(ctas),
+            "has_cta": len(ctas) > 0,
+        })
     return out
 
 
@@ -121,10 +138,12 @@ def api_get_project(slug: str) -> dict:
     lib = Library(p.db_path(root))
     raw_bytes, raw_files = _dir_size(p.raw_dir(root))
     out_bytes, out_files = _dir_size(p.output_dir(root))
+    ctas = p.list_cta_files(root)
     return {
         "project": p.__dict__,
         "stats": lib.stats(),
-        "has_cta": p.cta_path(root).exists(),
+        "has_cta": len(ctas) > 0,
+        "cta_count": len(ctas),
         "output_dir": str(p.output_dir(root)),
         "disk": {
             "raw_bytes": raw_bytes, "raw_files": raw_files,
@@ -165,14 +184,49 @@ def api_delete_project(slug: str, purge: bool = False) -> dict:
     return {"ok": True, "purged": purge}
 
 
-@app.post("/api/projects/{slug}/cta")
+@app.get("/api/projects/{slug}/ctas")
+def api_list_ctas(slug: str) -> list[dict]:
+    p, root = _project_or_404(slug)
+    return [
+        {
+            "name": f.name,
+            "size": f.stat().st_size,
+            "url": f"/api/projects/{slug}/ctas/{f.name}",
+        }
+        for f in p.list_cta_files(root)
+    ]
+
+
+@app.post("/api/projects/{slug}/ctas")
 async def api_upload_cta(slug: str, file: UploadFile) -> dict:
     p, root = _project_or_404(slug)
     p.ensure_dirs(root)
-    target = p.cta_path(root)
+    name = _safe_filename(file.filename or "cta.mp4")
+    target = p.ctas_dir(root) / name
     with target.open("wb") as f:
         shutil.copyfileobj(file.file, f)
-    return {"ok": True, "path": str(target)}
+    return {"ok": True, "name": name, "size": target.stat().st_size}
+
+
+@app.get("/api/projects/{slug}/ctas/{name}")
+def api_get_cta(slug: str, name: str) -> FileResponse:
+    p, root = _project_or_404(slug)
+    safe = _safe_filename(name)
+    target = p.ctas_dir(root) / safe
+    if not target.exists():
+        raise HTTPException(404, "cta not found")
+    return FileResponse(target, media_type="video/mp4")
+
+
+@app.delete("/api/projects/{slug}/ctas/{name}")
+def api_delete_cta(slug: str, name: str) -> dict:
+    p, root = _project_or_404(slug)
+    safe = _safe_filename(name)
+    target = p.ctas_dir(root) / safe
+    if not target.exists():
+        raise HTTPException(404, "cta not found")
+    target.unlink()
+    return {"ok": True}
 
 
 # ---------- library ----------
@@ -316,8 +370,8 @@ def _run_scrape(job_id: str, slug: str, channels: list[str], limit: int) -> None
 @app.post("/api/projects/{slug}/process")
 def api_process(slug: str, bt: BackgroundTasks) -> dict:
     p, root = _project_or_404(slug)
-    if not p.cta_path(root).exists():
-        raise HTTPException(400, "upload a CTA video before processing")
+    if not p.list_cta_files(root):
+        raise HTTPException(400, "upload at least one CTA video before processing")
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "id": job_id, "slug": slug, "type": "process",
@@ -334,7 +388,16 @@ def _run_process(job_id: str, slug: str) -> None:
         root = _root()
         p = Project.load(root, slug)
         lib = Library(p.db_path(root))
-        cta = p.cta_path(root)
+
+        ctas = p.list_cta_files(root)
+        if not ctas:
+            raise RuntimeError("no CTA videos uploaded")
+        deck = ctas[:]
+        random.shuffle(deck)
+        if len(ctas) == 1:
+            _log(job_id, f"Using CTA: {ctas[0].name}")
+        else:
+            _log(job_id, f"Pool of {len(ctas)} CTAs (round-robin, shuffled): {', '.join(c.name for c in ctas)}")
 
         pending = lib.list(status="scraped") + lib.list(status="downloaded") + lib.list(status="failed")
         seen: set[str] = set()
@@ -352,6 +415,7 @@ def _run_process(job_id: str, slug: str) -> None:
         for idx, v in enumerate(queue, start=1):
             vid = v["video_id"]
             title = (v.get("title") or "")[:60]
+            cta = deck[(idx - 1) % len(deck)]
             try:
                 raw_path = Path(v["raw_path"]) if v.get("raw_path") else None
                 if not raw_path or not raw_path.exists():
@@ -365,7 +429,7 @@ def _run_process(job_id: str, slug: str) -> None:
                     )
                 out_name = p.output_filename(vid, v.get("title"))
                 out = p.output_dir(root) / out_name
-                _log(job_id, f"[{idx}/{total}] stitch   {vid} -> {out.name}")
+                _log(job_id, f"[{idx}/{total}] stitch   {vid} + {cta.name} -> {out.name}")
                 stitch_with_cta(
                     raw_path, cta, out,
                     width=p.output_width, height=p.output_height,
@@ -378,6 +442,7 @@ def _run_process(job_id: str, slug: str) -> None:
                     output_path=str(out),
                     status="stitched",
                     stitched_at=_now(),
+                    cta_used=cta.name,
                     error=None,
                 )
             except Exception as e:

@@ -121,13 +121,17 @@
       </div>
 
       <div class="card">
-        <h3>CTA video <span id="cta-pill" class="pill pill-muted">none</span></h3>
-        <p class="muted small" id="cta-status">Upload your CTA video — it gets appended to every stitched short.</p>
+        <h3>CTA pool <span id="cta-pill" class="pill pill-muted">0</span></h3>
+        <p class="muted small">
+          Upload one or more CTA videos. Each render picks one and the assignment
+          is round-robin across the pool (shuffled per job), so usage stays even.
+        </p>
+        <ul class="cta-list" id="cta-list"></ul>
         <div class="cta-controls">
           <input type="file" id="cta-file" accept="video/*">
-          <button class="btn btn-secondary" id="upload-cta">Upload / replace CTA</button>
+          <button class="btn btn-secondary" id="upload-cta">+ Add CTA</button>
         </div>
-        <p class="muted small">Swap the CTA any time. Already-stitched clips aren't auto-redone — delete an output to re-stitch with the new CTA.</p>
+        <p class="muted small">Already-stitched clips aren't redone when you change the pool. Delete an output row to re-stitch with the new pool.</p>
       </div>
     </div>
 

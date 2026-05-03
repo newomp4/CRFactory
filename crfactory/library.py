@@ -19,11 +19,16 @@ CREATE TABLE IF NOT EXISTS videos (
     raw_path      TEXT,
     output_path   TEXT,
     status        TEXT,
-    error         TEXT
+    error         TEXT,
+    cta_used      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_status     ON videos(status);
 CREATE INDEX IF NOT EXISTS idx_view_count ON videos(view_count DESC);
 """
+
+EXTRA_COLUMNS: list[tuple[str, str]] = [
+    ("cta_used", "TEXT"),
+]
 
 
 def _now() -> str:
@@ -36,6 +41,10 @@ class Library:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as c:
             c.executescript(SCHEMA)
+            existing = {r[1] for r in c.execute("PRAGMA table_info(videos)").fetchall()}
+            for name, decl in EXTRA_COLUMNS:
+                if name not in existing:
+                    c.execute(f"ALTER TABLE videos ADD COLUMN {name} {decl}")
 
     @contextmanager
     def _conn(self):

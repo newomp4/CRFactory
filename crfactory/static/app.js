@@ -8,6 +8,7 @@ const state = {
   current: null,
   detail: null,
   library: [],
+  ctas: [],
   libraryFilter: '',
   librarySearch: '',
   jobId: null,
@@ -146,7 +147,7 @@ async function withButtonLoading(btn, fn) {
 async function loadConfig() {
   const c = await api('/api/config');
   $('#storage-root').value = c.storage_root;
-  $('#brand-sub').textContent = `v0.2 · ${c.platform} · ${c.video_encoder}`;
+  $('#brand-sub').textContent = `v0.3 · ${c.platform} · ${c.video_encoder}`;
 }
 
 $('#save-storage').onclick = (e) => withButtonLoading(e.currentTarget, async () => {
@@ -198,8 +199,7 @@ async function selectProject(slug) {
   $('#project-view').hidden = false;
   state.detail = await api(`/api/projects/${slug}`);
   renderProject();
-  await loadLibrary();
-  await loadActiveJob();
+  await Promise.all([loadCtas(), loadLibrary(), loadActiveJob()]);
 }
 
 function renderProject() {
@@ -222,17 +222,63 @@ function renderProject() {
   f.video_bitrate.value = d.project.video_bitrate;
   f.audio_bitrate.value = d.project.audio_bitrate;
 
+  const count = d.cta_count ?? 0;
   const ctaPill = $('#cta-pill');
-  if (d.has_cta) {
-    ctaPill.textContent = 'uploaded';
-    ctaPill.className = 'pill pill-success';
-    $('#cta-status').textContent = 'CTA is set. It will be appended to every stitched short.';
-  } else {
-    ctaPill.textContent = 'none';
-    ctaPill.className = 'pill pill-muted';
-    $('#cta-status').textContent = 'Upload your CTA video — it gets appended to every stitched short.';
+  ctaPill.textContent = count;
+  ctaPill.className = 'pill ' + (count > 0 ? 'pill-success' : 'pill-muted');
+}
+
+async function loadCtas() {
+  state.ctas = await api(`/api/projects/${state.current}/ctas`);
+  renderCtas();
+}
+
+function renderCtas() {
+  const ul = $('#cta-list');
+  ul.innerHTML = '';
+  if (!state.ctas.length) {
+    const empty = document.createElement('li');
+    empty.className = 'cta-list-empty';
+    empty.textContent = 'No CTA videos yet — upload at least one before processing.';
+    ul.appendChild(empty);
+    return;
+  }
+  for (const c of state.ctas) {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="cta-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
+      <span class="cta-size">${formatBytes(c.size)}</span>
+      <button class="btn btn-ghost btn-sm" data-cta-act="play" data-name="${escapeHtml(c.name)}">▶ Play</button>
+      <button class="btn btn-danger-ghost btn-sm" data-cta-act="delete" data-name="${escapeHtml(c.name)}">Delete</button>
+    `;
+    ul.appendChild(li);
   }
 }
+
+$('#cta-list').onclick = async (e) => {
+  const btn = e.target.closest('[data-cta-act]');
+  if (!btn) return;
+  const name = btn.dataset.name;
+  const act = btn.dataset.ctaAct;
+  if (act === 'play') {
+    $('#video-modal-title').textContent = name;
+    $('#video-modal-player').src = `/api/projects/${state.current}/ctas/${encodeURIComponent(name)}?t=${Date.now()}`;
+    openModal('video-modal');
+  } else if (act === 'delete') {
+    const ok = await confirmModal({
+      title: `Delete CTA "${name}"?`,
+      message: 'Removes the file from the project. Already-stitched videos that used it are not affected.',
+      okText: 'Delete',
+    });
+    if (!ok) return;
+    await api(`/api/projects/${state.current}/ctas/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    toast(`Deleted ${name}.`, 'success');
+    await loadCtas();
+    state.detail = await api(`/api/projects/${state.current}`);
+    renderProject();
+    await loadProjects();
+  }
+};
 
 async function loadLibrary() {
   state.library = await api(`/api/projects/${state.current}/library?limit=2000`);
@@ -267,7 +313,7 @@ function renderLibrary() {
       <td>${statusPill(r.status)}</td>
       <td class="title-cell">
         <a href="${ytLink}" target="_blank" rel="noopener">${escapeHtml(r.title || r.video_id)}</a>
-        <div class="vid">${r.video_id}${r.error ? ' · ' + escapeHtml(r.error.slice(0, 80)) : ''}</div>
+        <div class="vid">${r.video_id}${r.cta_used ? ' · cta: ' + escapeHtml(r.cta_used) : ''}${r.error ? ' · ' + escapeHtml(r.error.slice(0, 80)) : ''}</div>
       </td>
       <td>${escapeHtml(r.channel || '')}</td>
       <td class="num">${formatNumber(r.view_count)}</td>
@@ -380,13 +426,17 @@ $('#settings-form').onsubmit = (e) => {
 
 /* CTA upload */
 $('#upload-cta').onclick = (e) => withButtonLoading(e.currentTarget, async () => {
-  const file = $('#cta-file').files[0];
+  const fileInput = $('#cta-file');
+  const file = fileInput.files[0];
   if (!file) return toast('Pick a video file first.', 'warning');
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch(`/api/projects/${state.current}/cta`, { method: 'POST', body: fd });
+  const r = await fetch(`/api/projects/${state.current}/ctas`, { method: 'POST', body: fd });
   if (!r.ok) return toast('Upload failed: ' + await r.text(), 'error');
-  toast('CTA uploaded.', 'success');
+  const data = await r.json();
+  toast(`Added "${data.name}" to CTA pool.`, 'success');
+  fileInput.value = '';
+  await loadCtas();
   state.detail = await api(`/api/projects/${state.current}`);
   renderProject();
   await loadProjects();
@@ -402,7 +452,7 @@ $('#scrape-btn').onclick = (e) => withButtonLoading(e.currentTarget, async () =>
 
 $('#process-btn').onclick = (e) => withButtonLoading(e.currentTarget, async () => {
   if (!state.detail.has_cta) {
-    toast('Upload a CTA video first.', 'warning');
+    toast('Upload at least one CTA video first.', 'warning');
     return;
   }
   const j = await api(`/api/projects/${state.current}/process`, { method: 'POST', body: {} });

@@ -6,7 +6,7 @@ Pull a YouTube channel's top shorts, dedupe against what you've already grabbed,
 
 1. **Pick a channel.** Drop in a YouTube handle (e.g. `@somecreator`). It pulls their shorts metadata sorted by view count.
 2. **Dedupe.** Each project keeps a SQLite library keyed by YouTube video ID. Re-scraping the same channel later only downloads what's new.
-3. **Stitch your CTA.** Trim the first N seconds (default 3s, configurable per project), re-encode both the trimmed clip and your CTA to identical specs (1080×1920, H.264, 30fps), then concat. No glitchy seams, no audio drift.
+3. **Stitch your CTA pool.** Each project has a CTA pool — upload one or many. Each render picks one via shuffled round-robin, so usage is even across the pool. Both segments are re-encoded to identical specs (1080×1920, H.264, 30fps) before concat. No glitchy seams, no audio drift.
 4. **Per-project.** Each niche gets its own folder, channels list, CTA, library, and output directory.
 5. **Local-only.** No cloud, no upload scheduler. Output mp4s land in a folder you can hand to whatever upload tool you use.
 
@@ -48,7 +48,9 @@ Project folders, raw downloads, and output mp4s all live under that path.
 <storage-root>/
   fitness-niche/
     project.json          # channels, trim seconds, output specs
-    cta.mp4               # your CTA, swappable any time via UI
+    ctas/                 # CTA pool — drop in as many as you want
+      cta_v1.mp4
+      cta_v2.mp4
     library.db            # dedupe: video_id, status, paths
     raw/<id>.mp4          # original downloads
     output/<id>.mp4       # finished CTA-stitched clips

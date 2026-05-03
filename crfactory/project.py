@@ -30,6 +30,9 @@ class Project:
     def cta_path(self, root: Path) -> Path:
         return self.dir(root) / self.cta_filename
 
+    def ctas_dir(self, root: Path) -> Path:
+        return self.dir(root) / "ctas"
+
     def raw_dir(self, root: Path) -> Path:
         return self.dir(root) / "raw"
 
@@ -43,8 +46,25 @@ class Project:
         return self.dir(root) / "project.json"
 
     def ensure_dirs(self, root: Path) -> None:
-        for d in (self.dir(root), self.raw_dir(root), self.output_dir(root)):
+        for d in (self.dir(root), self.raw_dir(root), self.output_dir(root), self.ctas_dir(root)):
             d.mkdir(parents=True, exist_ok=True)
+
+    def list_cta_files(self, root: Path) -> list[Path]:
+        self._migrate_legacy_cta(root)
+        cdir = self.ctas_dir(root)
+        cdir.mkdir(parents=True, exist_ok=True)
+        exts = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
+        return sorted(p for p in cdir.iterdir() if p.is_file() and p.suffix.lower() in exts)
+
+    def _migrate_legacy_cta(self, root: Path) -> None:
+        legacy = self.dir(root) / self.cta_filename
+        if not legacy.exists():
+            return
+        cdir = self.ctas_dir(root)
+        cdir.mkdir(parents=True, exist_ok=True)
+        target = cdir / legacy.name
+        if not target.exists():
+            legacy.rename(target)
 
     def output_filename(self, video_id: str, title: str | None = None) -> str:
         base = sanitize_for_filename(title or "") or "video"
