@@ -82,6 +82,7 @@
       </div>
       <div class="action-group">
         <button class="btn btn-primary" id="process-btn">⚙ Download &amp; stitch new</button>
+        <button class="btn btn-ghost" id="restitch-all-btn" title="Re-render every stitched video with the current Settings + CTA pool. Raw downloads are reused, no re-download.">↻ Re-stitch all</button>
       </div>
     </div>
 
@@ -103,13 +104,20 @@
       <pre id="job-log"></pre>
     </div>
 
+    <div class="card">
+      <h3>Channels <span id="channels-count" class="pill pill-muted">0</span></h3>
+      <p class="muted small">Each channel's top shorts will be pulled when you click "Scrape channels". Add or remove individually — changes save instantly.</p>
+      <ul class="chips" id="channels-list"></ul>
+      <form id="add-channel-form" class="add-channel-form">
+        <input id="add-channel-input" type="text" placeholder="@handle or full youtube.com URL" autocomplete="off">
+        <button type="submit" class="btn btn-secondary">+ Add channel</button>
+      </form>
+    </div>
+
     <div class="grid-2">
       <div class="card">
         <h3>Settings</h3>
         <form id="settings-form" class="form">
-          <label>Channels (comma-separated handles)
-            <input name="channels" placeholder="@channel1, @channel2">
-          </label>
           <label>Clip seconds (cap source video duration before CTA)
             <input name="clip_seconds" type="number" step="0.5" min="0" placeholder="empty or 0 = full length">
           </label>
@@ -123,6 +131,7 @@
             <label>Audio bitrate<input name="audio_bitrate" placeholder="128k"></label>
           </div>
           <button class="btn btn-secondary">Save settings</button>
+          <p class="muted small">Settings apply to videos stitched <strong>going forward</strong>. To re-render existing outputs with new settings, use <em>Re-stitch all</em> in the action bar (or per-video Re-stitch in the library).</p>
         </form>
       </div>
 
@@ -137,7 +146,6 @@
           <input type="file" id="cta-file" accept="video/*">
           <button class="btn btn-secondary" id="upload-cta">+ Add CTA</button>
         </div>
-        <p class="muted small">Already-stitched clips aren't redone when you change the pool. Delete an output row to re-stitch with the new pool.</p>
       </div>
     </div>
 

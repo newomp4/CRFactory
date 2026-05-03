@@ -365,6 +365,60 @@ label.inline input { margin-top: 0; }
   font-size: .8rem;
 }
 
+.chips {
+  list-style: none;
+  padding: 0;
+  margin: .5rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+.chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .35rem .65rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: .85rem;
+}
+.chips .chip-handle {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .8rem;
+  color: var(--text);
+}
+.chips .chip-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 .15rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  border-radius: 50%;
+  width: 1.4em;
+  height: 1.4em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chips .chip-remove:hover { background: var(--danger-soft); color: #fca5a5; }
+.chips-empty {
+  padding: .5rem .8rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: .8rem;
+}
+
+.add-channel-form {
+  display: flex;
+  gap: .5rem;
+  margin-top: .25rem;
+}
+.add-channel-form input { flex: 1; }
+
 /* pills */
 .pill {
   display: inline-flex;

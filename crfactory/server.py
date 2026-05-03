@@ -277,6 +277,53 @@ def api_library_retry(slug: str, video_id: str) -> dict:
     return {"ok": True}
 
 
+@app.post("/api/projects/{slug}/library/{video_id}/restitch")
+def api_library_restitch(slug: str, video_id: str) -> dict:
+    p, root = _project_or_404(slug)
+    lib = Library(p.db_path(root))
+    row = lib.get(video_id)
+    if not row:
+        raise HTTPException(404, "video not in library")
+    if row.get("output_path"):
+        Path(row["output_path"]).unlink(missing_ok=True)
+    raw = row.get("raw_path")
+    has_raw = raw and Path(raw).exists()
+    lib.update(
+        video_id,
+        status="downloaded" if has_raw else "scraped",
+        output_path=None,
+        cta_used=None,
+        clip_used=None,
+        stitched_at=None,
+        error=None,
+    )
+    return {"ok": True, "next_status": "downloaded" if has_raw else "scraped"}
+
+
+@app.post("/api/projects/{slug}/restitch-all")
+def api_restitch_all(slug: str) -> dict:
+    p, root = _project_or_404(slug)
+    lib = Library(p.db_path(root))
+    rows = lib.list(status="stitched", limit=100000)
+    count = 0
+    for row in rows:
+        if row.get("output_path"):
+            Path(row["output_path"]).unlink(missing_ok=True)
+        raw = row.get("raw_path")
+        has_raw = raw and Path(raw).exists()
+        lib.update(
+            row["video_id"],
+            status="downloaded" if has_raw else "scraped",
+            output_path=None,
+            cta_used=None,
+            clip_used=None,
+            stitched_at=None,
+            error=None,
+        )
+        count += 1
+    return {"ok": True, "queued": count}
+
+
 @app.delete("/api/projects/{slug}/library/{video_id}")
 def api_library_delete(slug: str, video_id: str, delete_files: bool = True) -> dict:
     p, root = _project_or_404(slug)
@@ -465,6 +512,7 @@ def _run_process(job_id: str, slug: str) -> None:
                     status="stitched",
                     stitched_at=_now(),
                     cta_used=cta.name,
+                    clip_used=p.clip_seconds,
                     error=None,
                 )
             except CancelledError:

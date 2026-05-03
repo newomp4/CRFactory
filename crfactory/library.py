@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS videos (
     output_path   TEXT,
     status        TEXT,
     error         TEXT,
-    cta_used      TEXT
+    cta_used      TEXT,
+    clip_used     REAL
 );
 CREATE INDEX IF NOT EXISTS idx_status     ON videos(status);
 CREATE INDEX IF NOT EXISTS idx_view_count ON videos(view_count DESC);
@@ -28,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_view_count ON videos(view_count DESC);
 
 EXTRA_COLUMNS: list[tuple[str, str]] = [
     ("cta_used", "TEXT"),
+    ("clip_used", "REAL"),
 ]
 
 

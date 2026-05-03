@@ -147,7 +147,7 @@ async function withButtonLoading(btn, fn) {
 async function loadConfig() {
   const c = await api('/api/config');
   $('#storage-root').value = c.storage_root;
-  $('#brand-sub').textContent = `v0.4 · ${c.platform} · ${c.video_encoder}`;
+  $('#brand-sub').textContent = `v0.5 · ${c.platform} · ${c.video_encoder}`;
 }
 
 $('#save-storage').onclick = (e) => withButtonLoading(e.currentTarget, async () => {
@@ -214,8 +214,8 @@ function renderProject() {
   $('#stat-failed').textContent = d.stats.failed;
   $('#stat-disk').textContent = formatBytes(d.disk?.total_bytes || 0);
 
+  renderChannels();
   const f = $('#settings-form');
-  f.channels.value = (d.project.channels || []).join(', ');
   f.clip_seconds.value = d.project.clip_seconds == null ? '' : d.project.clip_seconds;
   f.output_width.value = d.project.output_width;
   f.output_height.value = d.project.output_height;
@@ -309,17 +309,27 @@ function renderLibrary() {
     const retryBtn = r.status === 'failed'
       ? `<button class="btn btn-secondary btn-sm" data-act="retry" data-id="${r.video_id}">Retry</button>`
       : '';
+    const restitchBtn = r.status === 'stitched'
+      ? `<button class="btn btn-ghost btn-sm" data-act="restitch" data-id="${r.video_id}" title="Reset this video so the next process run re-renders it with current settings">↻ Re-stitch</button>`
+      : '';
+    const meta = [
+      r.video_id,
+      r.cta_used ? 'cta: ' + r.cta_used : null,
+      r.clip_used != null ? 'clip: ' + r.clip_used + 's' : null,
+      r.error ? r.error.slice(0, 80) : null,
+    ].filter(Boolean).map(escapeHtml).join(' · ');
     tr.innerHTML = `
       <td>${thumb}</td>
       <td>${statusPill(r.status)}</td>
       <td class="title-cell">
         <a href="${ytLink}" target="_blank" rel="noopener">${escapeHtml(r.title || r.video_id)}</a>
-        <div class="vid">${r.video_id}${r.cta_used ? ' · cta: ' + escapeHtml(r.cta_used) : ''}${r.error ? ' · ' + escapeHtml(r.error.slice(0, 80)) : ''}</div>
+        <div class="vid">${meta}</div>
       </td>
       <td>${escapeHtml(r.channel || '')}</td>
       <td class="num">${formatNumber(r.view_count)}</td>
       <td class="actions">
         ${playBtn}
+        ${restitchBtn}
         ${retryBtn}
         <button class="btn btn-danger-ghost btn-sm" data-act="delete" data-id="${r.video_id}">Delete</button>
       </td>
@@ -347,6 +357,14 @@ $('#library-table').onclick = async (e) => {
       toast('Marked for retry. Click "Download & stitch" to run.', 'info');
       await loadLibrary();
     });
+  } else if (act === 'restitch') {
+    await withButtonLoading(btn, async () => {
+      const r = await api(`/api/projects/${state.current}/library/${id}/restitch`, { method: 'POST', body: {} });
+      toast(`Queued for re-stitch (${r.next_status}). Click "Download & stitch" to run.`, 'info');
+      await loadLibrary();
+      state.detail = await api(`/api/projects/${state.current}`);
+      renderProject();
+    });
   } else if (act === 'delete') {
     const ok = await confirmModal({
       title: 'Delete from library?',
@@ -360,6 +378,24 @@ $('#library-table').onclick = async (e) => {
     state.detail = await api(`/api/projects/${state.current}`);
     renderProject();
   }
+};
+
+$('#restitch-all-btn').onclick = async () => {
+  const stitched = state.detail?.stats?.stitched || 0;
+  if (!stitched) return toast('Nothing to re-stitch — no stitched videos yet.', 'warning');
+  const ok = await confirmModal({
+    title: `Re-stitch all ${stitched} stitched videos?`,
+    message: 'Existing output files will be deleted and the videos queued for re-stitching with current Settings + CTA pool. Raw downloads are reused (no re-download). Run "Download & stitch new" after to actually render them.',
+    okText: 'Re-stitch all',
+    danger: false,
+  });
+  if (!ok) return;
+  const r = await api(`/api/projects/${state.current}/restitch-all`, { method: 'POST', body: {} });
+  toast(`Queued ${r.queued} videos. Click "Download & stitch new" to render.`, 'success');
+  await loadLibrary();
+  state.detail = await api(`/api/projects/${state.current}`);
+  renderProject();
+  await loadProjects();
 };
 
 $('#video-modal').addEventListener('click', (e) => {
@@ -408,12 +444,10 @@ $('#add-url-submit').onclick = (e) => withButtonLoading(e.currentTarget, async (
 $('#settings-form').onsubmit = (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  const channels = (fd.get('channels') || '').split(',').map(s => s.trim()).filter(Boolean);
   const clipRaw = (fd.get('clip_seconds') || '').toString().trim();
   const clipSeconds = clipRaw === '' ? null : parseFloat(clipRaw);
   withButtonLoading(e.target.querySelector('button'), async () => {
     await api(`/api/projects/${state.current}`, { method: 'PUT', body: {
-      channels,
       clip_seconds: clipSeconds,
       output_width: parseInt(fd.get('output_width')),
       output_height: parseInt(fd.get('output_height')),
@@ -422,6 +456,72 @@ $('#settings-form').onsubmit = (e) => {
       audio_bitrate: fd.get('audio_bitrate'),
     }});
     toast('Settings saved.', 'success');
+    state.detail = await api(`/api/projects/${state.current}`);
+    renderProject();
+    await loadProjects();
+  });
+};
+
+/* channels chip UI */
+
+function normalizeHandle(s) {
+  let h = s.trim();
+  const m = h.match(/youtube\.com\/(@[\w.\-]+)/i);
+  if (m) return m[1];
+  h = h.replace(/^https?:\/\/(www\.)?youtube\.com\//i, '');
+  h = h.replace(/\/.*$/, '');
+  if (!h.startsWith('@') && !h.startsWith('http') && /^[\w.\-]+$/.test(h)) h = '@' + h;
+  return h;
+}
+
+function renderChannels() {
+  const ul = $('#channels-list');
+  const channels = state.detail?.project?.channels || [];
+  $('#channels-count').textContent = channels.length;
+  ul.innerHTML = '';
+  if (!channels.length) {
+    const empty = document.createElement('li');
+    empty.className = 'chips-empty';
+    empty.textContent = 'No channels yet — add one below.';
+    ul.appendChild(empty);
+    return;
+  }
+  for (const ch of channels) {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="chip-handle">${escapeHtml(ch)}</span>
+      <button type="button" class="chip-remove" data-handle="${escapeHtml(ch)}" title="Remove">×</button>
+    `;
+    ul.appendChild(li);
+  }
+}
+
+$('#channels-list').onclick = async (e) => {
+  const btn = e.target.closest('.chip-remove');
+  if (!btn) return;
+  const handle = btn.dataset.handle;
+  const next = (state.detail.project.channels || []).filter(c => c !== handle);
+  await api(`/api/projects/${state.current}`, { method: 'PUT', body: { channels: next } });
+  toast(`Removed ${handle}.`, 'success');
+  state.detail = await api(`/api/projects/${state.current}`);
+  renderProject();
+  await loadProjects();
+};
+
+$('#add-channel-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const input = $('#add-channel-input');
+  const raw = input.value;
+  const handle = normalizeHandle(raw);
+  if (!handle) return toast('Enter a channel handle or URL.', 'warning');
+  const current = state.detail.project.channels || [];
+  if (current.includes(handle)) return toast(`${handle} is already in this project.`, 'warning');
+  const next = [...current, handle];
+  const submitBtn = e.target.querySelector('button');
+  await withButtonLoading(submitBtn, async () => {
+    await api(`/api/projects/${state.current}`, { method: 'PUT', body: { channels: next } });
+    toast(`Added ${handle}.`, 'success');
+    input.value = '';
     state.detail = await api(`/api/projects/${state.current}`);
     renderProject();
     await loadProjects();
