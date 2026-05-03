@@ -147,8 +147,25 @@ async function withButtonLoading(btn, fn) {
 async function loadConfig() {
   const c = await api('/api/config');
   $('#storage-root').value = c.storage_root;
-  $('#brand-sub').textContent = `v0.5 · ${c.platform} · ${c.video_encoder}`;
+  $('#brand-sub').textContent = `v0.6 · ${c.platform} · ${c.video_encoder}` + (c.youtube_cookies_browser ? ` · cookies: ${c.youtube_cookies_browser}` : '');
+
+  const sel = $('#cookies-browser');
+  while (sel.options.length > 1) sel.remove(1);
+  for (const b of c.supported_browsers || []) {
+    const opt = document.createElement('option');
+    opt.value = b;
+    opt.textContent = b.charAt(0).toUpperCase() + b.slice(1);
+    sel.appendChild(opt);
+  }
+  sel.value = c.youtube_cookies_browser || '';
 }
+
+$('#cookies-browser').onchange = async (e) => {
+  const v = e.target.value || null;
+  await api('/api/config', { method: 'POST', body: { youtube_cookies_browser: v } });
+  toast(v ? `Now using ${v} cookies for YouTube.` : 'Cookies cleared (anonymous).', 'success');
+  await loadConfig();
+};
 
 $('#save-storage').onclick = (e) => withButtonLoading(e.currentTarget, async () => {
   await api('/api/config', { method: 'POST', body: { storage_root: $('#storage-root').value.trim() }});

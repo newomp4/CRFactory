@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .config import AppConfig
+from .config import SUPPORTED_BROWSERS, AppConfig
 from .downloader import download_video
 from .encoder import detect_video_encoder
 from .library import Library
@@ -89,20 +89,34 @@ def api_get_config() -> dict:
     cfg = AppConfig.load()
     return {
         "storage_root": cfg.storage_root,
+        "youtube_cookies_browser": cfg.youtube_cookies_browser,
+        "supported_browsers": list(SUPPORTED_BROWSERS),
         "video_encoder": detect_video_encoder(),
         "platform": platform.system(),
     }
 
 
 class ConfigUpdate(BaseModel):
-    storage_root: str
+    storage_root: str | None = None
+    youtube_cookies_browser: str | None = None
 
 
 @app.post("/api/config")
 def api_set_config(body: ConfigUpdate) -> dict:
-    cfg = AppConfig(storage_root=body.storage_root)
+    cfg = AppConfig.load()
+    payload = body.model_dump(exclude_unset=True)
+    if "youtube_cookies_browser" in payload:
+        v = payload["youtube_cookies_browser"]
+        if v and v not in SUPPORTED_BROWSERS:
+            raise HTTPException(400, f"unsupported browser: {v}")
+        cfg.youtube_cookies_browser = v or None
+    if "storage_root" in payload and payload["storage_root"]:
+        cfg.storage_root = payload["storage_root"]
     cfg.save()
-    return {"storage_root": cfg.storage_root}
+    return {
+        "storage_root": cfg.storage_root,
+        "youtube_cookies_browser": cfg.youtube_cookies_browser,
+    }
 
 
 # ---------- projects ----------
@@ -256,7 +270,7 @@ def api_library_add(slug: str, body: AddByUrlRequest) -> dict:
     p, root = _project_or_404(slug)
     lib = Library(p.db_path(root))
     try:
-        meta = fetch_video_metadata(body.url)
+        meta = fetch_video_metadata(body.url, cookies_browser=AppConfig.load().youtube_cookies_browser)
     except Exception as e:
         raise HTTPException(400, f"could not fetch metadata: {e}")
     if not meta.get("id"):
@@ -402,13 +416,16 @@ def _run_scrape(job_id: str, slug: str, channels: list[str], limit: int) -> None
         root = _root()
         p = Project.load(root, slug)
         lib = Library(p.db_path(root))
+        cookies_browser = AppConfig.load().youtube_cookies_browser
+        if cookies_browser:
+            _log(job_id, f"Using {cookies_browser} cookies for YouTube")
         for ch in channels:
             if _is_cancelled(job_id):
                 _log(job_id, "Cancelled by user")
                 break
             _log(job_id, f"Scraping {ch} (top {limit} by views)...")
             try:
-                items = list_channel_shorts(ch, limit=limit)
+                items = list_channel_shorts(ch, limit=limit, cookies_browser=cookies_browser)
             except Exception as e:
                 _log(job_id, f"  ERROR scraping {ch}: {e}")
                 continue
@@ -447,6 +464,9 @@ def _run_process(job_id: str, slug: str) -> None:
         root = _root()
         p = Project.load(root, slug)
         lib = Library(p.db_path(root))
+        cookies_browser = AppConfig.load().youtube_cookies_browser
+        if cookies_browser:
+            _log(job_id, f"Using {cookies_browser} cookies for YouTube downloads")
 
         ctas = p.list_cta_files(root)
         if not ctas:
@@ -482,7 +502,7 @@ def _run_process(job_id: str, slug: str) -> None:
                 raw_path = Path(v["raw_path"]) if v.get("raw_path") else None
                 if not raw_path or not raw_path.exists():
                     _log(job_id, f"[{idx}/{total}] download {vid}  {title}")
-                    raw_path = download_video(vid, p.raw_dir(root))
+                    raw_path = download_video(vid, p.raw_dir(root), cookies_browser=cookies_browser)
                     lib.update(
                         vid,
                         raw_path=str(raw_path),

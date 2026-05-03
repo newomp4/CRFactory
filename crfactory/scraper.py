@@ -39,7 +39,7 @@ def _entry_to_item(d: dict, channel_fallback: str | None = None) -> dict:
     }
 
 
-def list_channel_shorts(handle_or_url: str, limit: int = 100) -> list[dict]:
+def list_channel_shorts(handle_or_url: str, limit: int = 100, cookies_browser: str | None = None) -> list[dict]:
     base = normalize_handle(handle_or_url)
     url = f"{base}/shorts"
 
@@ -49,6 +49,8 @@ def list_channel_shorts(handle_or_url: str, limit: int = 100) -> list[dict]:
         "skip_download": True,
         "playlistend": max(limit * 3, limit + 10),
     }
+    if cookies_browser:
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -62,10 +64,12 @@ def list_channel_shorts(handle_or_url: str, limit: int = 100) -> list[dict]:
     return items[:limit]
 
 
-def fetch_video_metadata(url_or_id: str) -> dict:
+def fetch_video_metadata(url_or_id: str, cookies_browser: str | None = None) -> dict:
     vid = parse_video_id(url_or_id)
     url = url_or_id.strip() if url_or_id.strip().startswith("http") else f"https://www.youtube.com/watch?v={vid or url_or_id.strip()}"
     opts = {"quiet": True, "skip_download": True}
+    if cookies_browser:
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     with YoutubeDL(opts) as ydl:
         d = ydl.extract_info(url, download=False)
     return _entry_to_item(d)

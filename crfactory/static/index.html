@@ -25,6 +25,13 @@
 
   <div class="sidebar-footer">
     <details>
+      <summary>YouTube auth</summary>
+      <select id="cookies-browser">
+        <option value="">None (anonymous — may rate-limit)</option>
+      </select>
+      <p class="muted small">Pulls login cookies from your browser so YouTube doesn't bot-block large scrapes/downloads. Sign into youtube.com in that browser first.</p>
+    </details>
+    <details>
       <summary>Storage location</summary>
       <input id="storage-root" placeholder="/path/to/data">
       <button class="btn btn-secondary btn-block" id="save-storage">Save & reload</button>
