@@ -8,13 +8,14 @@ def download_video(video_id: str, dest_dir: Path, cookies_browser: str | None = 
     dest_dir.mkdir(parents=True, exist_ok=True)
     out_template = str(dest_dir / "%(id)s.%(ext)s")
     opts = {
-        "format": "bv*+ba/b",
+        "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
         "merge_output_format": "mp4",
         "outtmpl": out_template,
         "quiet": True,
         "noprogress": True,
         "overwrites": True,
         "restrictfilenames": True,
+        "remote_components": ["ejs:github"],
     }
     if cookies_browser:
         opts["cookiesfrombrowser"] = (cookies_browser,)

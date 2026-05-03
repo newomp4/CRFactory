@@ -48,6 +48,7 @@ def list_channel_shorts(handle_or_url: str, limit: int = 100, cookies_browser: s
         "quiet": True,
         "skip_download": True,
         "playlistend": max(limit * 3, limit + 10),
+        "remote_components": ["ejs:github"],
     }
     if cookies_browser:
         opts["cookiesfrombrowser"] = (cookies_browser,)
@@ -67,7 +68,7 @@ def list_channel_shorts(handle_or_url: str, limit: int = 100, cookies_browser: s
 def fetch_video_metadata(url_or_id: str, cookies_browser: str | None = None) -> dict:
     vid = parse_video_id(url_or_id)
     url = url_or_id.strip() if url_or_id.strip().startswith("http") else f"https://www.youtube.com/watch?v={vid or url_or_id.strip()}"
-    opts = {"quiet": True, "skip_download": True}
+    opts = {"quiet": True, "skip_download": True, "remote_components": ["ejs:github"]}
     if cookies_browser:
         opts["cookiesfrombrowser"] = (cookies_browser,)
     with YoutubeDL(opts) as ydl:
