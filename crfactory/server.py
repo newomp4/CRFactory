@@ -17,8 +17,8 @@ from .downloader import download_video
 from .encoder import detect_video_encoder
 from .library import Library
 from .project import Project, list_projects
-from .scraper import list_channel_shorts
-from .stitcher import trim_and_stitch
+from .scraper import fetch_video_metadata, list_channel_shorts
+from .stitcher import stitch_with_cta
 
 app = FastAPI(title="CRFactory")
 
@@ -39,6 +39,21 @@ def _root() -> Path:
 
 def _log(job_id: str, msg: str) -> None:
     JOBS[job_id]["log"].append(msg)
+
+
+def _project_or_404(slug: str) -> tuple[Project, Path]:
+    root = _root()
+    try:
+        return Project.load(root, slug), root
+    except FileNotFoundError:
+        raise HTTPException(404, "project not found")
+
+
+def _dir_size(path: Path) -> tuple[int, int]:
+    if not path.exists():
+        return 0, 0
+    files = [f for f in path.glob("*") if f.is_file()]
+    return sum(f.stat().st_size for f in files), len(files)
 
 
 @app.get("/")
@@ -76,13 +91,17 @@ def api_set_config(body: ConfigUpdate) -> dict:
 
 @app.get("/api/projects")
 def api_list_projects() -> list[dict]:
-    return [p.__dict__ for p in list_projects(_root())]
+    root = _root()
+    out = []
+    for p in list_projects(root):
+        lib = Library(p.db_path(root))
+        out.append({**p.__dict__, "stats": lib.stats(), "has_cta": p.cta_path(root).exists()})
+    return out
 
 
 class ProjectCreate(BaseModel):
     name: str
     channels: list[str] = []
-    trim_seconds: float = 3.0
 
 
 @app.post("/api/projects")
@@ -91,35 +110,32 @@ def api_create_project(body: ProjectCreate) -> dict:
     slug = Project.slugify(body.name)
     if (root / slug / "project.json").exists():
         raise HTTPException(400, f"project '{slug}' already exists")
-    p = Project(
-        name=body.name,
-        slug=slug,
-        channels=body.channels,
-        trim_seconds=body.trim_seconds,
-    )
+    p = Project(name=body.name, slug=slug, channels=body.channels)
     p.save(root)
     return p.__dict__
 
 
 @app.get("/api/projects/{slug}")
 def api_get_project(slug: str) -> dict:
-    root = _root()
-    try:
-        p = Project.load(root, slug)
-    except FileNotFoundError:
-        raise HTTPException(404, "project not found")
+    p, root = _project_or_404(slug)
     lib = Library(p.db_path(root))
+    raw_bytes, raw_files = _dir_size(p.raw_dir(root))
+    out_bytes, out_files = _dir_size(p.output_dir(root))
     return {
         "project": p.__dict__,
         "stats": lib.stats(),
         "has_cta": p.cta_path(root).exists(),
         "output_dir": str(p.output_dir(root)),
+        "disk": {
+            "raw_bytes": raw_bytes, "raw_files": raw_files,
+            "output_bytes": out_bytes, "output_files": out_files,
+            "total_bytes": raw_bytes + out_bytes,
+        },
     }
 
 
 class ProjectUpdate(BaseModel):
     channels: list[str] | None = None
-    trim_seconds: float | None = None
     output_width: int | None = None
     output_height: int | None = None
     framerate: int | None = None
@@ -129,8 +145,7 @@ class ProjectUpdate(BaseModel):
 
 @app.put("/api/projects/{slug}")
 def api_update_project(slug: str, body: ProjectUpdate) -> dict:
-    root = _root()
-    p = Project.load(root, slug)
+    p, root = _project_or_404(slug)
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(p, k, v)
     p.save(root)
@@ -152,8 +167,7 @@ def api_delete_project(slug: str, purge: bool = False) -> dict:
 
 @app.post("/api/projects/{slug}/cta")
 async def api_upload_cta(slug: str, file: UploadFile) -> dict:
-    root = _root()
-    p = Project.load(root, slug)
+    p, root = _project_or_404(slug)
     p.ensure_dirs(root)
     target = p.cta_path(root)
     with target.open("wb") as f:
@@ -161,18 +175,79 @@ async def api_upload_cta(slug: str, file: UploadFile) -> dict:
     return {"ok": True, "path": str(target)}
 
 
+# ---------- library ----------
+
 @app.get("/api/projects/{slug}/library")
 def api_library(slug: str, status: str | None = None, limit: int = 1000) -> list[dict]:
-    root = _root()
-    p = Project.load(root, slug)
+    p, root = _project_or_404(slug)
     lib = Library(p.db_path(root))
     return lib.list(status=status, limit=limit)
 
 
+class AddByUrlRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/projects/{slug}/library/add")
+def api_library_add(slug: str, body: AddByUrlRequest) -> dict:
+    p, root = _project_or_404(slug)
+    lib = Library(p.db_path(root))
+    try:
+        meta = fetch_video_metadata(body.url)
+    except Exception as e:
+        raise HTTPException(400, f"could not fetch metadata: {e}")
+    if not meta.get("id"):
+        raise HTTPException(400, "could not parse video id")
+    if lib.has(meta["id"]):
+        return {"added": False, "reason": "already in library", "video_id": meta["id"]}
+    lib.add_scraped(meta)
+    return {"added": True, "video_id": meta["id"]}
+
+
+@app.post("/api/projects/{slug}/library/{video_id}/retry")
+def api_library_retry(slug: str, video_id: str) -> dict:
+    p, root = _project_or_404(slug)
+    lib = Library(p.db_path(root))
+    if not lib.get(video_id):
+        raise HTTPException(404, "video not in library")
+    lib.update(video_id, status="scraped", error=None)
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{slug}/library/{video_id}")
+def api_library_delete(slug: str, video_id: str, delete_files: bool = True) -> dict:
+    p, root = _project_or_404(slug)
+    lib = Library(p.db_path(root))
+    row = lib.get(video_id)
+    if not row:
+        raise HTTPException(404, "video not in library")
+    if delete_files:
+        for key in ("raw_path", "output_path"):
+            if row.get(key):
+                Path(row[key]).unlink(missing_ok=True)
+    import sqlite3
+    with sqlite3.connect(lib.db_path) as c:
+        c.execute("DELETE FROM videos WHERE video_id=?", (video_id,))
+        c.commit()
+    return {"ok": True}
+
+
+@app.get("/api/projects/{slug}/library/{video_id}/output")
+def api_library_output(slug: str, video_id: str) -> FileResponse:
+    p, root = _project_or_404(slug)
+    lib = Library(p.db_path(root))
+    row = lib.get(video_id)
+    if not row or not row.get("output_path"):
+        raise HTTPException(404, "no output")
+    path = Path(row["output_path"])
+    if not path.exists():
+        raise HTTPException(404, "output file missing")
+    return FileResponse(path, media_type="video/mp4")
+
+
 @app.post("/api/projects/{slug}/reveal")
 def api_reveal_output(slug: str) -> dict:
-    root = _root()
-    p = Project.load(root, slug)
+    p, root = _project_or_404(slug)
     out = p.output_dir(root)
     out.mkdir(parents=True, exist_ok=True)
     sysname = platform.system()
@@ -197,15 +272,15 @@ class ScrapeRequest(BaseModel):
 
 @app.post("/api/projects/{slug}/scrape")
 def api_scrape(slug: str, body: ScrapeRequest, bt: BackgroundTasks) -> dict:
-    root = _root()
-    p = Project.load(root, slug)
+    p, root = _project_or_404(slug)
     channels = body.channels or p.channels
     if not channels:
         raise HTTPException(400, "no channels configured")
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "id": job_id, "slug": slug, "type": "scrape",
-        "status": "pending", "log": [], "started_at": _now(),
+        "status": "pending", "log": [], "progress": None,
+        "started_at": _now(),
     }
     bt.add_task(_run_scrape, job_id, slug, channels, body.limit)
     return {"job_id": job_id}
@@ -240,14 +315,14 @@ def _run_scrape(job_id: str, slug: str, channels: list[str], limit: int) -> None
 
 @app.post("/api/projects/{slug}/process")
 def api_process(slug: str, bt: BackgroundTasks) -> dict:
-    root = _root()
-    p = Project.load(root, slug)
+    p, root = _project_or_404(slug)
     if not p.cta_path(root).exists():
         raise HTTPException(400, "upload a CTA video before processing")
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "id": job_id, "slug": slug, "type": "process",
-        "status": "pending", "log": [], "started_at": _now(),
+        "status": "pending", "log": [], "progress": None,
+        "started_at": _now(),
     }
     bt.add_task(_run_process, job_id, slug)
     return {"job_id": job_id}
@@ -270,14 +345,17 @@ def _run_process(job_id: str, slug: str) -> None:
             seen.add(v["video_id"])
             queue.append(v)
 
-        _log(job_id, f"{len(queue)} videos to process")
-        for v in queue:
+        total = len(queue)
+        JOBS[job_id]["progress"] = {"done": 0, "total": total}
+        _log(job_id, f"{total} videos to process")
+
+        for idx, v in enumerate(queue, start=1):
             vid = v["video_id"]
             title = (v.get("title") or "")[:60]
             try:
                 raw_path = Path(v["raw_path"]) if v.get("raw_path") else None
                 if not raw_path or not raw_path.exists():
-                    _log(job_id, f"  download {vid}  {title}")
+                    _log(job_id, f"[{idx}/{total}] download {vid}  {title}")
                     raw_path = download_video(vid, p.raw_dir(root))
                     lib.update(
                         vid,
@@ -285,11 +363,11 @@ def _run_process(job_id: str, slug: str) -> None:
                         status="downloaded",
                         downloaded_at=_now(),
                     )
-                out = p.output_dir(root) / f"{vid}.mp4"
-                _log(job_id, f"  stitch   {vid} -> {out.name}")
-                trim_and_stitch(
+                out_name = p.output_filename(vid, v.get("title"))
+                out = p.output_dir(root) / out_name
+                _log(job_id, f"[{idx}/{total}] stitch   {vid} -> {out.name}")
+                stitch_with_cta(
                     raw_path, cta, out,
-                    trim_seconds=p.trim_seconds,
                     width=p.output_width, height=p.output_height,
                     framerate=p.framerate,
                     video_bitrate=p.video_bitrate,
@@ -304,7 +382,9 @@ def _run_process(job_id: str, slug: str) -> None:
                 )
             except Exception as e:
                 lib.update(vid, status="failed", error=str(e)[:500])
-                _log(job_id, f"  FAILED {vid}: {e}")
+                _log(job_id, f"[{idx}/{total}] FAILED {vid}: {e}")
+            finally:
+                JOBS[job_id]["progress"] = {"done": idx, "total": total}
         JOBS[job_id]["status"] = "done"
     except Exception as e:
         JOBS[job_id]["status"] = "error"
@@ -314,8 +394,11 @@ def _run_process(job_id: str, slug: str) -> None:
 
 
 @app.get("/api/jobs")
-def api_jobs() -> list[dict]:
-    return list(JOBS.values())[-50:]
+def api_jobs(slug: str | None = None) -> list[dict]:
+    items = list(JOBS.values())
+    if slug:
+        items = [j for j in items if j.get("slug") == slug]
+    return items[-50:]
 
 
 @app.get("/api/jobs/{job_id}")

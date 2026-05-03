@@ -7,78 +7,215 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <h1>CRFactory</h1>
-  <div class="hcfg">
-    <span id="env-badge" class="badge"></span>
-    <label>Storage root <input id="storage-root" placeholder="/path/to/crfactory-data"></label>
-    <button id="save-storage">Save</button>
-  </div>
-</header>
 
-<main>
-  <section id="projects-section">
-    <h2>Projects</h2>
-    <ul id="projects-list"></ul>
-    <form id="new-project-form" class="card">
-      <strong>New project</strong>
-      <input name="name" placeholder="Project name (e.g. Fitness Niche)" required>
-      <input name="channels" placeholder="@handle1, @handle2 (optional)">
-      <label>Trim sec <input name="trim_seconds" type="number" step="0.1" value="3" min="0" style="width:5em"></label>
-      <button>Create</button>
-    </form>
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">CR</div>
+    <div>
+      <div class="brand-name">CRFactory</div>
+      <div class="brand-sub" id="brand-sub">v0.2 · loading</div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-block" id="new-project-btn">+ New project</button>
+
+  <nav class="project-nav" id="project-nav">
+    <div class="nav-empty muted">No projects yet</div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <details>
+      <summary>Storage location</summary>
+      <input id="storage-root" placeholder="/path/to/data">
+      <button class="btn btn-secondary btn-block" id="save-storage">Save & reload</button>
+      <p class="muted small">Point at an external drive or SD card to save space on your main disk.</p>
+    </details>
+  </div>
+</aside>
+
+<main class="main">
+
+  <!-- Welcome view -->
+  <section id="welcome" class="welcome">
+    <div class="welcome-card">
+      <h1>Welcome to CRFactory</h1>
+      <p>Pull a YouTube channel's top shorts, stitch your CTA on the end, and drop the finished mp4s into a folder ready for upload.</p>
+      <ol>
+        <li>Create a project (one per niche or campaign)</li>
+        <li>Add channels and upload your CTA video</li>
+        <li>Hit <strong>Scrape</strong> to pull top shorts metadata</li>
+        <li>Hit <strong>Process</strong> to download, stitch, and export</li>
+      </ol>
+      <button class="btn btn-primary" id="welcome-new-project">+ Create your first project</button>
+    </div>
   </section>
 
-  <section id="project-detail" hidden>
-    <h2 id="project-title"></h2>
-    <div class="grid">
+  <!-- Project view -->
+  <section id="project-view" hidden>
+    <header class="project-header">
+      <div>
+        <h1 id="project-title"></h1>
+        <div class="project-sub muted" id="project-sub"></div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost" id="reveal-btn" title="Open output folder in Finder/Explorer">
+          <span class="icon">↗</span> Reveal output
+        </button>
+        <button class="btn btn-danger-ghost" id="delete-project-btn">Delete project</button>
+      </div>
+    </header>
+
+    <div class="stat-grid">
+      <div class="stat" data-stat="total"><label>Total in library</label><strong id="stat-total">—</strong></div>
+      <div class="stat" data-stat="scraped"><label>Scraped</label><strong id="stat-scraped">—</strong></div>
+      <div class="stat" data-stat="stitched"><label>Stitched</label><strong id="stat-stitched">—</strong></div>
+      <div class="stat" data-stat="failed"><label>Failed</label><strong id="stat-failed">—</strong></div>
+      <div class="stat" data-stat="disk"><label>Disk used</label><strong id="stat-disk">—</strong></div>
+    </div>
+
+    <div class="action-bar">
+      <div class="action-group">
+        <label class="inline">Top N
+          <input id="scrape-limit" type="number" value="50" min="1" max="5000" style="width:6em">
+        </label>
+        <button class="btn btn-primary" id="scrape-btn">↻ Scrape channels</button>
+      </div>
+      <div class="action-group">
+        <button class="btn btn-primary" id="process-btn">⚙ Download &amp; stitch new</button>
+      </div>
+    </div>
+
+    <div id="job-card" class="job-card" hidden>
+      <div class="job-head">
+        <div>
+          <strong id="job-title"></strong>
+          <span class="muted small" id="job-time"></span>
+        </div>
+        <div id="job-status-pill"></div>
+      </div>
+      <div id="job-progress-bar" class="progress-bar" hidden>
+        <div class="progress-fill" id="job-progress-fill"></div>
+        <span class="progress-text" id="job-progress-text"></span>
+      </div>
+      <pre id="job-log"></pre>
+    </div>
+
+    <div class="grid-2">
       <div class="card">
         <h3>Settings</h3>
-        <form id="settings-form">
-          <label>Channels (comma-separated)<br><input name="channels"></label>
-          <label>Trim seconds <input name="trim_seconds" type="number" step="0.1"></label>
-          <label>Output width <input name="output_width" type="number"></label>
-          <label>Output height <input name="output_height" type="number"></label>
-          <label>Framerate <input name="framerate" type="number"></label>
-          <label>Video bitrate <input name="video_bitrate" placeholder="4M"></label>
-          <label>Audio bitrate <input name="audio_bitrate" placeholder="128k"></label>
-          <button>Save settings</button>
+        <form id="settings-form" class="form">
+          <label>Channels (comma-separated handles)
+            <input name="channels" placeholder="@channel1, @channel2">
+          </label>
+          <div class="row-2">
+            <label>Output width<input name="output_width" type="number"></label>
+            <label>Output height<input name="output_height" type="number"></label>
+          </div>
+          <div class="row-3">
+            <label>Framerate<input name="framerate" type="number"></label>
+            <label>Video bitrate<input name="video_bitrate" placeholder="4M"></label>
+            <label>Audio bitrate<input name="audio_bitrate" placeholder="128k"></label>
+          </div>
+          <button class="btn btn-secondary">Save settings</button>
         </form>
       </div>
 
       <div class="card">
-        <h3>CTA video</h3>
-        <p id="cta-status"></p>
-        <input type="file" id="cta-file" accept="video/*">
-        <button id="upload-cta">Upload / replace</button>
-        <p class="muted">Swap any time. Re-running "Download + stitch" will only re-run failed/new clips, not re-stitch existing ones.</p>
-      </div>
-
-      <div class="card">
-        <h3>Actions</h3>
-        <label>Top N to scrape <input id="scrape-limit" type="number" value="50" min="1"></label>
-        <button id="scrape-btn">Scrape channels</button>
-        <button id="process-btn">Download + stitch new</button>
-        <button id="reveal-output">Reveal output folder</button>
-      </div>
-
-      <div class="card">
-        <h3>Stats</h3>
-        <pre id="stats"></pre>
-        <p class="muted" id="output-dir-line"></p>
+        <h3>CTA video <span id="cta-pill" class="pill pill-muted">none</span></h3>
+        <p class="muted small" id="cta-status">Upload your CTA video — it gets appended to every stitched short.</p>
+        <div class="cta-controls">
+          <input type="file" id="cta-file" accept="video/*">
+          <button class="btn btn-secondary" id="upload-cta">Upload / replace CTA</button>
+        </div>
+        <p class="muted small">Swap the CTA any time. Already-stitched clips aren't auto-redone — delete an output to re-stitch with the new CTA.</p>
       </div>
     </div>
 
-    <h3>Job log</h3>
-    <pre id="job-log">No active job.</pre>
+    <div class="card library-card">
+      <div class="library-head">
+        <h3>Library</h3>
+        <div class="filter-chips" id="status-filters">
+          <button class="chip active" data-status="">All</button>
+          <button class="chip" data-status="scraped">Scraped</button>
+          <button class="chip" data-status="downloaded">Downloaded</button>
+          <button class="chip" data-status="stitched">Stitched</button>
+          <button class="chip" data-status="failed">Failed</button>
+        </div>
+        <div class="library-actions">
+          <input id="library-search" placeholder="Search title or channel…">
+          <button class="btn btn-ghost" id="add-by-url-btn">+ Add by URL</button>
+        </div>
+      </div>
 
-    <h3>Library</h3>
-    <table id="library">
-      <thead><tr><th>Status</th><th>Views</th><th>Title</th><th>Channel</th><th>ID</th></tr></thead>
-      <tbody></tbody>
-    </table>
+      <div id="add-by-url-form" class="add-url-form" hidden>
+        <input id="add-url-input" placeholder="https://youtube.com/shorts/xxxx or video ID" type="text">
+        <button class="btn btn-secondary" id="add-url-submit">Add</button>
+        <button class="btn btn-ghost" id="add-url-cancel">Cancel</button>
+      </div>
+
+      <div class="library-table-wrap">
+        <table class="library-table" id="library-table">
+          <thead><tr>
+            <th></th>
+            <th>Status</th>
+            <th>Title</th>
+            <th>Channel</th>
+            <th class="num">Views</th>
+            <th class="actions">Actions</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted small library-footer" id="library-count"></p>
+    </div>
   </section>
+
 </main>
+
+<!-- New project modal -->
+<div class="modal" id="new-project-modal" hidden>
+  <div class="modal-backdrop" data-dismiss="new-project-modal"></div>
+  <div class="modal-body">
+    <h3>New project</h3>
+    <form id="new-project-form" class="form">
+      <label>Project name<input name="name" placeholder="e.g. Fitness Niche" required autofocus></label>
+      <label>Channels (optional, comma-separated)
+        <input name="channels" placeholder="@channel1, @channel2">
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-dismiss="new-project-modal">Cancel</button>
+        <button class="btn btn-primary">Create project</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal" id="confirm-modal" hidden>
+  <div class="modal-backdrop" data-dismiss="confirm-modal"></div>
+  <div class="modal-body">
+    <h3 id="confirm-title">Are you sure?</h3>
+    <p class="muted" id="confirm-message"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" data-dismiss="confirm-modal">Cancel</button>
+      <button type="button" class="btn btn-danger" id="confirm-ok">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Video preview modal -->
+<div class="modal" id="video-modal" hidden>
+  <div class="modal-backdrop" data-dismiss="video-modal"></div>
+  <div class="modal-body modal-body-wide">
+    <div class="video-modal-head">
+      <h3 id="video-modal-title">Preview</h3>
+      <button class="btn btn-ghost" data-dismiss="video-modal">Close</button>
+    </div>
+    <video id="video-modal-player" controls playsinline style="width:100%; max-height:75vh; background:#000; border-radius:6px;"></video>
+  </div>
+</div>
+
+<div id="toast-container" class="toast-container"></div>
 
 <script src="/static/app.js"></script>
 </body>

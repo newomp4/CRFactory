@@ -1,6 +1,6 @@
 [project]
 name = "crfactory"
-version = "0.1.0"
+version = "0.2.0"
 description = "Scrape YouTube shorts, stitch your CTA, batch-output ready-to-upload clips."
 readme = "README.md"
 license = { text = "MIT" }

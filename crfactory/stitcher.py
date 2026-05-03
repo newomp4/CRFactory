@@ -6,11 +6,10 @@ from .encoder import detect_video_encoder
 from .ffbin import ffmpeg_bin
 
 
-def trim_and_stitch(
+def stitch_with_cta(
     input_path: Path,
     cta_path: Path,
     output_path: Path,
-    trim_seconds: float = 3.0,
     width: int = 1080,
     height: int = 1920,
     framerate: int = 30,
@@ -27,8 +26,8 @@ def trim_and_stitch(
     )
 
     filter_complex = (
-        f"[0:v]trim=start={trim_seconds},setpts=PTS-STARTPTS,{scale_pad}[v0];"
-        f"[0:a]atrim=start={trim_seconds},asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[a0];"
+        f"[0:v]{scale_pad}[v0];"
+        f"[0:a]aresample=async=1:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[a0];"
         f"[1:v]{scale_pad}[v1];"
         f"[1:a]aresample=async=1:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[a1];"
         f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"

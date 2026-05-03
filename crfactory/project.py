@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import re
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,7 +11,6 @@ class Project:
     name: str
     slug: str
     channels: list[str] = field(default_factory=list)
-    trim_seconds: float = 3.0
     output_width: int = 1080
     output_height: int = 1920
     framerate: int = 30
@@ -22,7 +21,7 @@ class Project:
 
     @staticmethod
     def slugify(name: str) -> str:
-        slug = re.sub(r"[^a-zA-Z0-9-]+", "-", name.strip().lower()).strip("-")
+        slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
         return slug or "project"
 
     def dir(self, root: Path) -> Path:
@@ -47,6 +46,10 @@ class Project:
         for d in (self.dir(root), self.raw_dir(root), self.output_dir(root)):
             d.mkdir(parents=True, exist_ok=True)
 
+    def output_filename(self, video_id: str, title: str | None = None) -> str:
+        base = sanitize_for_filename(title or "") or "video"
+        return f"{base[:80]}_{video_id}.mp4"
+
     def save(self, root: Path) -> None:
         self.ensure_dirs(root)
         self.project_file(root).write_text(json.dumps(asdict(self), indent=2))
@@ -54,7 +57,18 @@ class Project:
     @classmethod
     def load(cls, root: Path, slug: str) -> "Project":
         path = root / slug / "project.json"
-        return cls(**json.loads(path.read_text()))
+        return cls.from_dict(json.loads(path.read_text()))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Project":
+        valid = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in valid})
+
+
+def sanitize_for_filename(s: str) -> str:
+    s = re.sub(r"[^\w\s-]", "", s, flags=re.UNICODE).strip()
+    s = re.sub(r"[\s_-]+", "-", s)
+    return s.strip("-")
 
 
 def list_projects(root: Path) -> list[Project]:
@@ -64,7 +78,7 @@ def list_projects(root: Path) -> list[Project]:
         pf = d / "project.json"
         if pf.exists():
             try:
-                out.append(Project(**json.loads(pf.read_text())))
+                out.append(Project.from_dict(json.loads(pf.read_text())))
             except Exception:
                 continue
     return out
