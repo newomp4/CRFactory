@@ -20,12 +20,19 @@ from .encoder import detect_video_encoder
 from .library import Library
 from .project import Project, list_projects
 from .scraper import fetch_video_metadata, list_channel_shorts
-from .stitcher import stitch_with_cta
+from .stitcher import CancelledError, stitch_with_cta
+
+import subprocess as _subprocess
 
 app = FastAPI(title="CRFactory")
 
 STATIC_DIR = Path(__file__).parent / "static"
 JOBS: dict[str, dict] = {}
+JOB_PROCS: dict[str, _subprocess.Popen | None] = {}
+
+
+def _is_cancelled(job_id: str) -> bool:
+    return bool(JOBS.get(job_id, {}).get("cancel"))
 
 
 def _now() -> str:
@@ -155,6 +162,7 @@ def api_get_project(slug: str) -> dict:
 
 class ProjectUpdate(BaseModel):
     channels: list[str] | None = None
+    clip_seconds: float | None = None
     output_width: int | None = None
     output_height: int | None = None
     framerate: int | None = None
@@ -165,7 +173,8 @@ class ProjectUpdate(BaseModel):
 @app.put("/api/projects/{slug}")
 def api_update_project(slug: str, body: ProjectUpdate) -> dict:
     p, root = _project_or_404(slug)
-    for k, v in body.model_dump(exclude_none=True).items():
+    payload = body.model_dump(exclude_unset=True)
+    for k, v in payload.items():
         setattr(p, k, v)
     p.save(root)
     return p.__dict__
@@ -334,7 +343,7 @@ def api_scrape(slug: str, body: ScrapeRequest, bt: BackgroundTasks) -> dict:
     JOBS[job_id] = {
         "id": job_id, "slug": slug, "type": "scrape",
         "status": "pending", "log": [], "progress": None,
-        "started_at": _now(),
+        "started_at": _now(), "cancel": False,
     }
     bt.add_task(_run_scrape, job_id, slug, channels, body.limit)
     return {"job_id": job_id}
@@ -347,6 +356,9 @@ def _run_scrape(job_id: str, slug: str, channels: list[str], limit: int) -> None
         p = Project.load(root, slug)
         lib = Library(p.db_path(root))
         for ch in channels:
+            if _is_cancelled(job_id):
+                _log(job_id, "Cancelled by user")
+                break
             _log(job_id, f"Scraping {ch} (top {limit} by views)...")
             try:
                 items = list_channel_shorts(ch, limit=limit)
@@ -359,7 +371,7 @@ def _run_scrape(job_id: str, slug: str, channels: list[str], limit: int) -> None
                     new += 1
             dup = len(items) - new
             _log(job_id, f"  {ch}: {len(items)} fetched, {new} new, {dup} already in library")
-        JOBS[job_id]["status"] = "done"
+        JOBS[job_id]["status"] = "cancelled" if _is_cancelled(job_id) else "done"
     except Exception as e:
         JOBS[job_id]["status"] = "error"
         _log(job_id, f"FATAL: {e}")
@@ -376,7 +388,7 @@ def api_process(slug: str, bt: BackgroundTasks) -> dict:
     JOBS[job_id] = {
         "id": job_id, "slug": slug, "type": "process",
         "status": "pending", "log": [], "progress": None,
-        "started_at": _now(),
+        "started_at": _now(), "cancel": False,
     }
     bt.add_task(_run_process, job_id, slug)
     return {"job_id": job_id}
@@ -413,6 +425,9 @@ def _run_process(job_id: str, slug: str) -> None:
         _log(job_id, f"{total} videos to process")
 
         for idx, v in enumerate(queue, start=1):
+            if _is_cancelled(job_id):
+                _log(job_id, "Cancelled by user")
+                break
             vid = v["video_id"]
             title = (v.get("title") or "")[:60]
             cta = deck[(idx - 1) % len(deck)]
@@ -427,16 +442,23 @@ def _run_process(job_id: str, slug: str) -> None:
                         status="downloaded",
                         downloaded_at=_now(),
                     )
+                if _is_cancelled(job_id):
+                    _log(job_id, "Cancelled by user")
+                    break
                 out_name = p.output_filename(vid, v.get("title"))
                 out = p.output_dir(root) / out_name
-                _log(job_id, f"[{idx}/{total}] stitch   {vid} + {cta.name} -> {out.name}")
+                clip_label = f" first {p.clip_seconds}s" if p.clip_seconds else " full"
+                _log(job_id, f"[{idx}/{total}] stitch   {vid}{clip_label} + {cta.name} -> {out.name}")
                 stitch_with_cta(
                     raw_path, cta, out,
                     width=p.output_width, height=p.output_height,
                     framerate=p.framerate,
                     video_bitrate=p.video_bitrate,
                     audio_bitrate=p.audio_bitrate,
+                    clip_seconds=p.clip_seconds,
+                    proc_callback=lambda proc: JOB_PROCS.__setitem__(job_id, proc),
                 )
+                JOB_PROCS[job_id] = None
                 lib.update(
                     vid,
                     output_path=str(out),
@@ -445,16 +467,25 @@ def _run_process(job_id: str, slug: str) -> None:
                     cta_used=cta.name,
                     error=None,
                 )
+            except CancelledError:
+                JOB_PROCS[job_id] = None
+                _log(job_id, f"[{idx}/{total}] cancelled mid-stitch")
+                break
             except Exception as e:
+                JOB_PROCS[job_id] = None
+                if _is_cancelled(job_id):
+                    _log(job_id, f"[{idx}/{total}] cancelled (subprocess error: {e})")
+                    break
                 lib.update(vid, status="failed", error=str(e)[:500])
                 _log(job_id, f"[{idx}/{total}] FAILED {vid}: {e}")
             finally:
                 JOBS[job_id]["progress"] = {"done": idx, "total": total}
-        JOBS[job_id]["status"] = "done"
+        JOBS[job_id]["status"] = "cancelled" if _is_cancelled(job_id) else "done"
     except Exception as e:
         JOBS[job_id]["status"] = "error"
         _log(job_id, f"FATAL: {e}")
     finally:
+        JOB_PROCS.pop(job_id, None)
         JOBS[job_id]["finished_at"] = _now()
 
 
@@ -471,6 +502,23 @@ def api_job(job_id: str) -> dict:
     if job_id not in JOBS:
         raise HTTPException(404, "no such job")
     return JOBS[job_id]
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def api_cancel_job(job_id: str) -> dict:
+    if job_id not in JOBS:
+        raise HTTPException(404, "no such job")
+    job = JOBS[job_id]
+    if job["status"] not in ("pending", "running"):
+        return {"ok": False, "reason": f"job is {job['status']}"}
+    job["cancel"] = True
+    proc = JOB_PROCS.get(job_id)
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    return {"ok": True}
 
 
 @app.get("/api/health")

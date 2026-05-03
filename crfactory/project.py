@@ -11,6 +11,7 @@ class Project:
     name: str
     slug: str
     channels: list[str] = field(default_factory=list)
+    clip_seconds: float | None = 12.0
     output_width: int = 1080
     output_height: int = 1920
     framerate: int = 30

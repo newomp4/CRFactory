@@ -147,7 +147,7 @@ async function withButtonLoading(btn, fn) {
 async function loadConfig() {
   const c = await api('/api/config');
   $('#storage-root').value = c.storage_root;
-  $('#brand-sub').textContent = `v0.3 · ${c.platform} · ${c.video_encoder}`;
+  $('#brand-sub').textContent = `v0.4 · ${c.platform} · ${c.video_encoder}`;
 }
 
 $('#save-storage').onclick = (e) => withButtonLoading(e.currentTarget, async () => {
@@ -216,6 +216,7 @@ function renderProject() {
 
   const f = $('#settings-form');
   f.channels.value = (d.project.channels || []).join(', ');
+  f.clip_seconds.value = d.project.clip_seconds == null ? '' : d.project.clip_seconds;
   f.output_width.value = d.project.output_width;
   f.output_height.value = d.project.output_height;
   f.framerate.value = d.project.framerate;
@@ -408,9 +409,12 @@ $('#settings-form').onsubmit = (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const channels = (fd.get('channels') || '').split(',').map(s => s.trim()).filter(Boolean);
+  const clipRaw = (fd.get('clip_seconds') || '').toString().trim();
+  const clipSeconds = clipRaw === '' ? null : parseFloat(clipRaw);
   withButtonLoading(e.target.querySelector('button'), async () => {
     await api(`/api/projects/${state.current}`, { method: 'PUT', body: {
       channels,
+      clip_seconds: clipSeconds,
       output_width: parseInt(fd.get('output_width')),
       output_height: parseInt(fd.get('output_height')),
       framerate: parseInt(fd.get('framerate')),
@@ -503,13 +507,18 @@ function renderJob(j) {
   const seconds = Math.round(((finished || new Date()) - started) / 1000);
   $('#job-time').textContent = `· ${seconds}s elapsed`;
 
+  const isActive = j.status === 'running' || j.status === 'pending';
+  $('#cancel-job-btn').hidden = !isActive;
+
   const pill = $('#job-status-pill');
-  if (j.status === 'running' || j.status === 'pending') {
+  if (isActive) {
     pill.innerHTML = `<span class="pill pill-info"><span class="spinner" style="margin-right:.35rem"></span>${j.status}</span>`;
   } else if (j.status === 'done') {
-    pill.innerHTML = statusPill('stitched').replace('Stitched', 'Done');
+    pill.innerHTML = `<span class="pill pill-success">Done</span>`;
+  } else if (j.status === 'cancelled') {
+    pill.innerHTML = `<span class="pill pill-warning">Cancelled</span>`;
   } else {
-    pill.innerHTML = statusPill('failed').replace('Failed', j.status);
+    pill.innerHTML = `<span class="pill pill-danger">${j.status}</span>`;
   }
 
   const progress = j.progress;
@@ -526,6 +535,14 @@ function renderJob(j) {
   $('#job-log').scrollTop = $('#job-log').scrollHeight;
 }
 
+$('#cancel-job-btn').onclick = async (e) => {
+  if (!state.jobId) return;
+  await withButtonLoading(e.currentTarget, async () => {
+    await api(`/api/jobs/${state.jobId}/cancel`, { method: 'POST', body: {} });
+    toast('Cancellation requested. Stopping after current step…', 'warning');
+  });
+};
+
 function watchJob(id) {
   if (state.jobTimer) clearInterval(state.jobTimer);
   state.jobId = id;
@@ -533,10 +550,10 @@ function watchJob(id) {
     try {
       const j = await api(`/api/jobs/${id}`);
       renderJob(j);
-      if (j.status === 'done' || j.status === 'error') {
+      if (j.status === 'done' || j.status === 'error' || j.status === 'cancelled') {
         clearInterval(state.jobTimer); state.jobTimer = null;
-        if (j.status === 'done') toast(`${j.type === 'scrape' ? 'Scrape' : 'Process'} complete.`, 'success');
-        else toast(`${j.type} failed. Check the log.`, 'error');
+        const [msg, kind] = statusToastFor(j);
+        toast(msg, kind);
         state.detail = await api(`/api/projects/${state.current}`);
         renderProject();
         await loadLibrary();
@@ -548,6 +565,12 @@ function watchJob(id) {
   };
   tick();
   state.jobTimer = setInterval(tick, 1500);
+}
+
+function statusToastFor(j) {
+  if (j.status === 'done') return ['Job complete.', 'success'];
+  if (j.status === 'cancelled') return ['Job cancelled.', 'warning'];
+  return [`${j.type} failed. Check the log.`, 'error'];
 }
 
 /* ---------- new project ---------- */

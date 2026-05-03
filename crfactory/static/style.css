@@ -280,8 +280,9 @@ label.inline input { margin-top: 0; }
   margin-bottom: 1.25rem;
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
-.job-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .65rem; }
+.job-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .65rem; gap: .75rem; }
 .job-head .small { margin-left: .5rem; }
+.job-head-right { display: flex; align-items: center; gap: .5rem; }
 .progress-bar {
   position: relative;
   height: 22px;

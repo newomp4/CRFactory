@@ -91,7 +91,10 @@
           <strong id="job-title"></strong>
           <span class="muted small" id="job-time"></span>
         </div>
-        <div id="job-status-pill"></div>
+        <div class="job-head-right">
+          <button class="btn btn-danger-ghost btn-sm" id="cancel-job-btn" hidden>Cancel job</button>
+          <div id="job-status-pill"></div>
+        </div>
       </div>
       <div id="job-progress-bar" class="progress-bar" hidden>
         <div class="progress-fill" id="job-progress-fill"></div>
@@ -106,6 +109,9 @@
         <form id="settings-form" class="form">
           <label>Channels (comma-separated handles)
             <input name="channels" placeholder="@channel1, @channel2">
+          </label>
+          <label>Clip seconds (cap source video duration before CTA)
+            <input name="clip_seconds" type="number" step="0.5" min="0" placeholder="empty or 0 = full length">
           </label>
           <div class="row-2">
             <label>Output width<input name="output_width" type="number"></label>
